@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>妈妈的模特图工具</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f5f2ee;
+    --card: #ffffff;
+    --text: #3a3530;
+    --muted: #8c8279;
+    --border: #e0dbd5;
+    --accent: #9b8573;
+    --accent-hover: #7a685b;
+    --danger: #c0392b;
+    --success: #6b8f71;
+    --radius: 12px;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .container { max-width: 800px; margin: 0 auto; padding: 24px 20px 60px; }
+
+  /* Header */
+  header { text-align: center; padding: 32px 0 24px; }
+  header h1 { font-size: 28px; font-weight: 600; letter-spacing: 0.02em; color: #4a3f38; }
+  header .subtitle { font-size: 15px; color: var(--muted); margin-top: 4px; }
+
+  /* Status badge */
+  .status-bar { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 24px; font-size: 14px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .status-dot.ok { background: var(--success); }
+  .status-dot.missing { background: #e0b44c; }
+  .status-text { color: var(--muted); }
+
+  /* Card */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 28px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03);
+  }
+  .card-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: #4a3f38;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* Upload zone */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 40px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+  }
+  .upload-zone:hover, .upload-zone.dragover { border-color: var(--accent); background: #faf8f6; }
+  .upload-zone.has-image { border-style: solid; border-color: var(--accent); padding: 16px; }
+  .upload-icon { font-size: 40px; display: block; margin-bottom: 8px; }
+  .upload-text { font-size: 16px; color: var(--text); }
+  .upload-hint { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .upload-zone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+  .preview-img {
+    max-width: 100%; max-height: 300px; border-radius: 8px;
+    display: block; margin: 0 auto;
+  }
+  .preview-actions { display: flex; justify-content: center; gap: 12px; margin-top: 12px; }
+  .btn-sm {
+    padding: 6px 16px; font-size: 13px; border-radius: 6px;
+    border: 1px solid var(--border); background: #fff; color: var(--text); cursor: pointer;
+  }
+  .btn-sm:hover { background: #f5f2ee; }
+
+  /* Form elements */
+  label { display: block; font-size: 15px; font-weight: 500; margin-bottom: 6px; color: #4a3f38; }
+  textarea {
+    width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 15px; font-family: inherit; resize: vertical; min-height: 72px;
+    background: #faf9f7; transition: border-color 0.2s;
+  }
+  textarea:focus { outline: none; border-color: var(--accent); }
+
+  /* Pose selector */
+  .pose-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .pose-btn {
+    padding: 14px 12px; border: 1.5px solid var(--border); border-radius: 10px;
+    background: #fff; cursor: pointer; text-align: center; transition: all 0.2s;
+    font-size: 14px; font-family: inherit;
+  }
+  .pose-btn:hover { border-color: var(--accent); background: #faf8f6; }
+  .pose-btn.active { border-color: var(--accent); background: #f5f0ea; font-weight: 500; }
+  .pose-btn .pose-icon { display: block; font-size: 22px; margin-bottom: 4px; }
+  .pose-btn .pose-label { font-size: 14px; }
+  .pose-btn .pose-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* Generate button */
+  .btn-generate {
+    width: 100%; padding: 16px; font-size: 18px; font-weight: 600;
+    border: none; border-radius: var(--radius); cursor: pointer;
+    background: #3a3530; color: #fff; transition: background 0.2s, opacity 0.2s;
+    letter-spacing: 0.04em; font-family: inherit;
+  }
+  .btn-generate:hover:not(:disabled) { background: #2a2520; }
+  .btn-generate:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  /* Loading */
+  .loading-wrap { text-align: center; padding: 32px 0; }
+  .spinner {
+    width: 40px; height: 40px; border: 4px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 15px; color: var(--muted); }
+  .loading-detail { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+  /* Result */
+  .result-image { width: 100%; border-radius: var(--radius); display: block; }
+  .result-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  .btn-outline {
+    padding: 10px 20px; font-size: 14px; border-radius: 8px;
+    border: 1.5px solid var(--border); background: #fff; cursor: pointer;
+    font-family: inherit; transition: background 0.2s;
+  }
+  .btn-outline:hover { background: #f5f2ee; }
+
+  .analysis-box {
+    margin-top: 16px; padding: 16px; background: #faf9f7;
+    border-radius: 8px; font-size: 14px; line-height: 1.8;
+  }
+  .analysis-box dt { font-weight: 500; color: #4a3f38; margin-top: 8px; }
+  .analysis-box dd { color: var(--muted); margin-left: 0; }
+
+  /* Key section */
+  .collapsible { cursor: pointer; user-select: none; }
+  .collapsible::after { content: " ▾"; font-size: 12px; color: var(--muted); }
+  .collapsible.open::after { content: " ▴"; }
+  .collapsible-content { display: none; margin-top: 16px; }
+  .collapsible-content.open { display: block; }
+
+  .key-input-row { display: flex; gap: 10px; }
+  .key-input {
+    flex: 1; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 14px; font-family: "SF Mono", "Menlo", monospace;
+    background: #faf9f7;
+  }
+  .key-input:focus { outline: none; border-color: var(--accent); }
+  .key-hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+  /* Samples */
+  .sample-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+  .sample-item { cursor: pointer; border-radius: 8px; overflow: hidden; transition: transform 0.15s; }
+  .sample-item:hover { transform: translateY(-2px); }
+  .sample-item img { width: 100%; display: block; aspect-ratio: 2/3; object-fit: cover; }
+  .sample-label { font-size: 12px; color: var(--muted); text-align: center; padding: 6px 0; }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    padding: 12px 24px; border-radius: 8px; font-size: 14px;
+    background: #3a3530; color: #fff; z-index: 1000;
+    opacity: 0; transition: opacity 0.3s;
+  }
+  .toast.show { opacity: 1; }
+  .toast.error { background: var(--danger); }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center; z-index: 999;
+  }
+  .modal-img { max-width: 90vw; max-height: 85vh; border-radius: 8px; }
+  .modal-close { position: absolute; top: 16px; right: 24px; color: #fff; font-size: 32px; cursor: pointer; }
+
+  /* Responsive */
+  @media (max-width: 600px) {
+    .container { padding: 16px 12px 40px; }
+    header h1 { font-size: 24px; }
+    .card { padding: 20px 16px; }
+    .pose-grid { grid-template-columns: repeat(2, 1fr); }
+    .sample-grid { grid-template-columns: repeat(2, 1fr); }
+    .key-input-row { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Header -->
+  <header>
+    <h1>模特图生成工具</h1>
+    <p class="subtitle">上传衣服图片，自动生成高级模特图</p>
+  </header>
+
+  <!-- Status -->
+  <div class="status-bar">
+    <span id="statusDot" class="status-dot missing"></span>
+    <span id="statusText" class="status-text">正在检查连接...</span>
+  </div>
+
+  <!-- Upload Card -->
+  <div class="card">
+    <div class="card-title">📷 上传衣服图片</div>
+    <div id="uploadZone" class="upload-zone">
+      <span class="upload-icon">🖼️</span>
+      <p class="upload-text">点击这里选择图片，或拖拽图片到此处</p>
+      <p class="upload-hint">支持 JPG、PNG、WEBP 格式</p>
+      <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp">
+    </div>
+    <div id="previewArea" style="display:none;"></div>
+  </div>
+
+  <!-- Notes Card -->
+  <div class="card">
+    <div class="card-title">📝 补充要求（可选）</div>
+    <label for="notesInput">对生成结果有什么特别要求？</label>
+    <textarea id="notesInput" placeholder="比如：口袋是斜插的、袖口要圆鼓一点、颜色以原图为准不要变白……"></textarea>
+  </div>
+
+  <!-- Style Card -->
+  <div class="card">
+    <div class="card-title">🎨 选择画面风格</div>
+    <div class="pose-grid">
+      <button class="pose-btn active" data-pose="quiet-luxury">
+        <span class="pose-icon">✨</span>
+        <span class="pose-label">安静奢华</span>
+        <span class="pose-desc">松弛自信，街拍感</span>
+      </button>
+      <button class="pose-btn" data-pose="walking">
+        <span class="pose-icon">🚶</span>
+        <span class="pose-label">自然走路</span>
+        <span class="pose-desc">生活化街拍</span>
+      </button>
+      <button class="pose-btn" data-pose="studio-clean">
+        <span class="pose-icon">📸</span>
+        <span class="pose-label">干净棚拍</span>
+        <span class="pose-desc">暖石材空间</span>
+      </button>
+      <button class="pose-btn" data-pose="detail-forward">
+        <span class="pose-icon">🔍</span>
+        <span class="pose-label">细节优先</span>
+        <span class="pose-desc">突出领子袖口口袋</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Generate -->
+  <button id="btnGenerate" class="btn-generate" disabled>生成模特图</button>
+
+  <!-- Loading -->
+  <div id="loadingArea" style="display:none;">
+    <div class="loading-wrap">
+      <div class="spinner"></div>
+      <p class="loading-text">正在生成模特图...</p>
+      <p class="loading-detail">先自动分析衣服细节，再生成图片，可能需要 10-30 秒</p>
+    </div>
+  </div>
+
+  <!-- Result -->
+  <div id="resultCard" class="card" style="display:none;">
+    <div class="card-title">🖼️ 生成结果</div>
+    <img id="resultImage" class="result-image" alt="生成的模特图">
+    <div class="result-actions">
+      <a id="btnDownload" class="btn-outline" download>💾 下载图片</a>
+      <button id="btnRetry" class="btn-outline">🔄 重新生成</button>
+    </div>
+    <dl id="analysisBox" class="analysis-box"></dl>
+  </div>
+
+  <!-- Error -->
+  <div id="errorCard" class="card" style="display:none; border-left: 3px solid var(--danger);">
+    <div class="card-title">❌ 生成失败</div>
+    <p id="errorText" style="color: var(--danger); font-size: 14px;"></p>
+  </div>
+
+  <!-- API Key Setup -->
+  <div class="card">
+    <div class="card-title collapsible open" id="keyToggle">🔑 本机保存 OpenAI Key</div>
+    <div class="collapsible-content open" id="keyContent">
+      <div class="key-input-row">
+        <input id="keyInput" class="key-input" type="password" placeholder="sk-proj-..." autocomplete="off">
+        <button id="btnSaveKey" class="btn-outline" style="white-space:nowrap;">保存密钥</button>
+      </div>
+      <p class="key-hint">
+        Key 只保存在你的电脑上，不会上传到其他地方。如果网页显示"缺少密钥"，在这里粘贴并保存即可。
+        获取 Key：前往 <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">OpenAI API Keys</a> 页面创建。
+      </p>
+    </div>
+  </div>
+
+  <!-- Samples -->
+  <div class="card">
+    <div class="card-title">📸 历史生成示例</div>
+    <div id="sampleGrid" class="sample-grid">
+      <div class="sample-item"><div style="background:#f0ebe4;aspect-ratio:2/3;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;">加载中...</div></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast"></div>
+
+<!-- Image Modal -->
+<div id="imgModal" class="modal-overlay" style="display:none;" onclick="this.style.display='none'">
+  <span class="modal-close">&times;</span>
+  <img id="modalImg" class="modal-img" alt="预览">
+</div>
+
+<script>
+// ── State ──
+let selectedFile = null;
+let selectedPose = "quiet-luxury";
+let generatedBlobUrl = null;
+
+// ── DOM refs ──
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+// ── Toast ──
+function toast(msg, isError) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.className = "toast " + (isError ? "error" : "");
+  setTimeout(() => el.classList.add("show"), 10);
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove("show"), 3500);
+}
+
+// ── Status check ──
+async function checkStatus() {
+  try {
+    const res = await fetch("/api/status");
+    const data = await res.json();
+    const dot = $("#statusDot"), text = $("#statusText");
+    if (data.hasKey) {
+      dot.className = "status-dot ok";
+      text.textContent = "密钥已配置，可以正常使用";
+      $("#btnGenerate").disabled = !selectedFile;
+    } else {
+      dot.className = "status-dot missing";
+      text.textContent = "尚未配置密钥，请在下方输入 OpenAI Key";
+      $("#btnGenerate").disabled = true;
+    }
+  } catch {
+    $("#statusDot").className = "status-dot missing";
+    $("#statusText").textContent = "无法连接到服务器";
+  }
+}
+
+// ── File upload ──
+const uploadZone = $("#uploadZone");
+const fileInput = $("#fileInput");
+const previewArea = $("#previewArea");
+
+uploadZone.addEventListener("click", (e) => {
+  if (e.target === fileInput) return;
+  fileInput.click();
+});
+
+fileInput.addEventListener("change", () => {
+  if (fileInput.files.length) handleFile(fileInput.files[0]);
+});
+
+uploadZone.addEventListener("dragover", (e) => { e.preventDefault(); uploadZone.classList.add("dragover"); });
+uploadZone.addEventListener("dragleave", () => { uploadZone.classList.remove("dragover"); });
+uploadZone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  uploadZone.classList.remove("dragover");
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+
+function handleFile(file) {
+  if (!file.type.match(/^image\/(jpeg|png|webp)$/)) {
+    toast("请选择 JPG、PNG 或 WEBP 格式的图片", true);
+    return;
+  }
+  selectedFile = file;
+  const reader = new FileReader();
+  reader.onload = function() {
+    uploadZone.classList.add("has-image");
+    uploadZone.querySelector(".upload-icon").textContent = "✅";
+    uploadZone.querySelector(".upload-text").textContent = file.name;
+    uploadZone.querySelector(".upload-hint").textContent = `文件大小：${(file.size / 1024).toFixed(0)} KB — 点击重新选择`;
+    previewArea.style.display = "block";
+    previewArea.innerHTML = `
+      <img src="${reader.result}" class="preview-img" alt="预览">
+      <div class="preview-actions">
+        <button class="btn-sm" onclick="fileInput.click()">📁 换一张</button>
+        <button class="btn-sm" onclick="clearFile()">✕ 清除</button>
+      </div>`;
+  };
+  reader.readAsDataURL(file);
+  checkStatus().then(() => { if (selectedFile) checkStatus(); });
+}
+
+function clearFile() {
+  selectedFile = null;
+  fileInput.value = "";
+  uploadZone.classList.remove("has-image");
+  uploadZone.querySelector(".upload-icon").textContent = "🖼️";
+  uploadZone.querySelector(".upload-text").textContent = "点击这里选择图片，或拖拽图片到此处";
+  uploadZone.querySelector(".upload-hint").textContent = "支持 JPG、PNG、WEBP 格式";
+  previewArea.style.display = "none";
+  previewArea.innerHTML = "";
+  $("#btnGenerate").disabled = true;
+}
+
+// ── Pose selection ──
+$$(".pose-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    $$(".pose-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    selectedPose = btn.dataset.pose;
+  });
+});
+
+// ── Generate ──
+$("#btnGenerate").addEventListener("click", generate);
+
+async function generate() {
+  if (!selectedFile) {
+    toast("请先选择一张衣服图片", true);
+    return;
+  }
+
+  // Hide previous results
+  $("#resultCard").style.display = "none";
+  $("#errorCard").style.display = "none";
+  if (generatedBlobUrl) { URL.revokeObjectURL(generatedBlobUrl); generatedBlobUrl = null; }
+
+  // Show loading
+  $("#loadingArea").style.display = "block";
+  $("#btnGenerate").disabled = true;
+  window.scrollTo({ top: $("#loadingArea").offsetTop - 100, behavior: "smooth" });
+
+  try {
+    const form = new FormData();
+    form.append("garment", selectedFile);
+    form.append("pose", selectedPose);
+    const notes = $("#notesInput").value.trim();
+    if (notes) form.append("notes", notes);
+
+    const res = await fetch("/api/generate", { method: "POST", body: form });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      if (data.missingKey) {
+        $("#keyToggle").scrollIntoView({ behavior: "smooth" });
+        $("#keyToggle").classList.add("open");
+        $("#keyContent").classList.add("open");
+      }
+      throw new Error(data.error || "生成失败，请稍后再试");
+    }
+
+    // Display result
+    if (data.image) {
+      generatedBlobUrl = data.image; // it's a data: URL already
+      $("#resultImage").src = data.image;
+      $("#btnDownload").href = data.image;
+      $("#btnDownload").download = data.savedFile ? data.savedFile.split("/").pop() : "model_photo.png";
+      $("#resultCard").style.display = "";
+      $("#resultCard").scrollIntoView({ behavior: "smooth" });
+    }
+
+    // Display analysis
+    if (data.analysis) {
+      const a = data.analysis;
+      const dl = $("#analysisBox");
+      const rows = [];
+      if (a.productName) rows.push(`<dt>商品名</dt><dd>${esc(a.productName)}</dd>`);
+      if (a.productParagraph) rows.push(`<dt>描述</dt><dd>${esc(a.productParagraph)}</dd>`);
+      if (a.color) rows.push(`<dt>颜色</dt><dd>${esc(a.color)}</dd>`);
+      if (a.material) rows.push(`<dt>材质</dt><dd>${esc(a.material)}</dd>`);
+      if (a.silhouette) rows.push(`<dt>廓形</dt><dd>${esc(a.silhouette)}</dd>`);
+      if (a.length) rows.push(`<dt>衣长</dt><dd>${esc(a.length)}</dd>`);
+      if (a.shoulder) rows.push(`<dt>肩线</dt><dd>${esc(a.shoulder)}</dd>`);
+      if (a.collar) rows.push(`<dt>领子/帽子</dt><dd>${esc(a.collar)}</dd>`);
+      if (a.sleeves) rows.push(`<dt>袖子</dt><dd>${esc(a.sleeves)}</dd>`);
+      if (a.cuffs) rows.push(`<dt>袖口</dt><dd>${esc(a.cuffs)}</dd>`);
+      if (a.pockets) rows.push(`<dt>口袋</dt><dd>${esc(a.pockets)}</dd>`);
+      if (a.closure) rows.push(`<dt>门襟</dt><dd>${esc(a.closure)}</dd>`);
+      if (a.hem) rows.push(`<dt>下摆</dt><dd>${esc(a.hem)}</dd>`);
+      if (a.detailsToPreserve?.length) {
+        rows.push(`<dt>锁定细节</dt><dd>${a.detailsToPreserve.map(esc).join("、")}</dd>`);
+      }
+      dl.innerHTML = rows.join("");
+    }
+
+    toast("生成成功！");
+  } catch (err) {
+    $("#errorCard").style.display = "";
+    $("#errorText").textContent = err.message || "未知错误，请稍后再试";
+    $("#errorCard").scrollIntoView({ behavior: "smooth" });
+    toast(err.message || "生成失败", true);
+  } finally {
+    $("#loadingArea").style.display = "none";
+    checkStatus();
+  }
+}
+
+function esc(str) {
+  if (!str) return "";
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ── Retry ──
+$("#btnRetry").addEventListener("click", generate);
+
+// ── Save Key ──
+$("#btnSaveKey").addEventListener("click", async () => {
+  const apiKey = $("#keyInput").value.trim();
+  if (!apiKey) { toast("请先粘贴 OpenAI API Key", true); return; }
+  if (!apiKey.startsWith("sk-") || apiKey.length < 40) {
+    toast("这不像一个有效的 OpenAI Key（应该以 sk- 开头）", true);
+    return;
+  }
+  try {
+    const res = await fetch("/api/save-key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "保存失败");
+    toast("密钥保存成功！");
+    $("#keyInput").value = "";
+    checkStatus();
+  } catch (err) {
+    toast(err.message || "保存失败", true);
+  }
+});
+
+// ── Collapsible ──
+$("#keyToggle").addEventListener("click", () => {
+  $("#keyToggle").classList.toggle("open");
+  $("#keyContent").classList.toggle("open");
+});
+
+// ── Load samples ──
+async function loadSamples() {
+  try {
+    const res = await fetch("/api/samples");
+    const data = await res.json();
+    if (!data.samples?.length) return;
+    const grid = $("#sampleGrid");
+    grid.innerHTML = data.samples.map((s) => `
+      <div class="sample-item" onclick="openModal('/sample/${encodeURIComponent(s.id)}')">
+        <img src="/sample/${encodeURIComponent(s.id)}" alt="${esc(s.id)}" loading="lazy">
+        <div class="sample-label">${esc(s.id)}</div>
+      </div>
+    `).join("");
+  } catch { /* samples are optional */ }
+}
+
+// ── Image modal ──
+function openModal(src) {
+  $("#modalImg").src = src;
+  $("#imgModal").style.display = "flex";
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") $("#imgModal").style.display = "none";
+});
+
+// ── Init ──
+checkStatus();
+loadSamples();
+</script>
+
+</body>
+</html>
