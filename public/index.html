@@ -295,15 +295,21 @@
 
   <!-- API Key Setup -->
   <div class="card">
-    <div class="card-title collapsible open" id="keyToggle">🔑 本机保存 OpenAI Key</div>
-    <div class="collapsible-content open" id="keyContent">
+    <div class="card-title collapsible" id="keyToggle">🔑 配置 API 密钥</div>
+    <div class="collapsible-content" id="keyContent">
+      <label for="siliconflowInput" style="margin-top:12px;">硅基流动 Key（分析衣服用）</label>
       <div class="key-input-row">
-        <input id="keyInput" class="key-input" type="password" placeholder="sk-proj-..." autocomplete="off">
-        <button id="btnSaveKey" class="btn-outline" style="white-space:nowrap;">保存密钥</button>
+        <input id="siliconflowInput" class="key-input" type="password" placeholder="sk-..." autocomplete="off">
       </div>
+      <label for="arkInput" style="margin-top:12px;">火山引擎 Key（生成模特图用）</label>
+      <div class="key-input-row">
+        <input id="arkInput" class="key-input" type="password" placeholder="即梦/Seedream API Key" autocomplete="off">
+      </div>
+      <button id="btnSaveKey" class="btn-outline" style="margin-top:12px;width:100%;">保存密钥</button>
       <p class="key-hint">
-        Key 只保存在你的电脑上，不会上传到其他地方。如果网页显示"缺少密钥"，在这里粘贴并保存即可。
-        获取 Key：前往 <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">OpenAI API Keys</a> 页面创建。
+        密钥只保存在你的电脑上。<br>
+        硅基流动：<a href="https://siliconflow.cn" target="_blank" rel="noopener">siliconflow.cn</a> 注册即送免费额度。<br>
+        火山引擎即梦：<a href="https://console.volcengine.com/ark" target="_blank" rel="noopener">console.volcengine.com/ark</a> 开通即梦 4.0，新用户 200 次免费生成。
       </p>
     </div>
   </div>
@@ -357,9 +363,13 @@ async function checkStatus() {
       dot.className = "status-dot ok";
       text.textContent = "密钥已配置，可以正常使用";
       $("#btnGenerate").disabled = !selectedFile;
+    } else if (data.hasAnalysisKey || data.hasImageKey) {
+      dot.className = "status-dot missing";
+      text.textContent = "部分密钥未配置，请检查下方设置";
+      $("#btnGenerate").disabled = true;
     } else {
       dot.className = "status-dot missing";
-      text.textContent = "尚未配置密钥，请在下方输入 OpenAI Key";
+      text.textContent = "尚未配置密钥，请在下方填入硅基流动和火山引擎的 Key";
       $("#btnGenerate").disabled = true;
     }
   } catch {
@@ -531,22 +541,23 @@ $("#btnRetry").addEventListener("click", generate);
 
 // ── Save Key ──
 $("#btnSaveKey").addEventListener("click", async () => {
-  const apiKey = $("#keyInput").value.trim();
-  if (!apiKey) { toast("请先粘贴 OpenAI API Key", true); return; }
-  if (!apiKey.startsWith("sk-") || apiKey.length < 40) {
-    toast("这不像一个有效的 OpenAI Key（应该以 sk- 开头）", true);
+  const siliconflowKey = $("#siliconflowInput").value.trim();
+  const arkKey = $("#arkInput").value.trim();
+  if (!siliconflowKey && !arkKey) {
+    toast("请至少填入一个 API Key", true);
     return;
   }
   try {
     const res = await fetch("/api/save-key", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey }),
+      body: JSON.stringify({ siliconflowKey, arkKey }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "保存失败");
     toast("密钥保存成功！");
-    $("#keyInput").value = "";
+    if (siliconflowKey) $("#siliconflowInput").value = "";
+    if (arkKey) $("#arkInput").value = "";
     checkStatus();
   } catch (err) {
     toast(err.message || "保存失败", true);

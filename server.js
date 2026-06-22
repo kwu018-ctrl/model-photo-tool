@@ -7,8 +7,10 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 5178);
 const HOST = process.env.HOST || "127.0.0.1";
-const DEFAULT_IMAGE_MODEL = "gpt-image-2";
-const DEFAULT_VISION_MODEL = "gpt-5.5";
+const DEFAULT_IMAGE_MODEL = "doubao-seedream-4-0-250828";
+const DEFAULT_VISION_MODEL = "Qwen/Qwen3-VL-32B-Instruct";
+const SILICONFLOW_BASE = "https://api.siliconflow.cn/v1";
+const ARK_BASE = "https://ark.cn-beijing.volces.com/api/v3/images/generations";
 
 const mimeTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -37,9 +39,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/api/status") {
       return sendJson(res, {
-        hasKey: Boolean(process.env.OPENAI_API_KEY),
-        imageModel: process.env.OPENAI_IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
-        visionModel: process.env.OPENAI_VISION_MODEL || DEFAULT_VISION_MODEL,
+        hasAnalysisKey: Boolean(process.env.SILICONFLOW_API_KEY),
+        hasImageKey: Boolean(process.env.ARK_API_KEY),
+        hasKey: Boolean(process.env.SILICONFLOW_API_KEY && process.env.ARK_API_KEY),
+        analysisModel: process.env.ANALYSIS_MODEL || DEFAULT_VISION_MODEL,
+        imageModel: process.env.IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
       });
     }
 
@@ -96,13 +100,16 @@ server.listen(PORT, HOST, () => {
 });
 
 async function handleGenerate(req, res) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
+  const analysisKey = process.env.SILICONFLOW_API_KEY;
+  const imageKey = process.env.ARK_API_KEY;
+  if (!analysisKey || !imageKey) {
     return sendJson(
       res,
       {
-        error: "还没有连接 OpenAI API key。等密钥补好后，这个按钮就可以直接生成图片。",
+        error: "还没有配置 API 密钥。请在下方填入硅基流动（分析）和火山引擎（生图）的 Key。",
         missingKey: true,
+        missingAnalysis: !analysisKey,
+        missingImage: !imageKey,
       },
       400,
     );
@@ -126,7 +133,6 @@ async function handleGenerate(req, res) {
   const imageDataUrl = `data:${imageMime};base64,${imageBytes.toString("base64")}`;
   const notes = String(form.get("notes") || "").trim();
   const garmentAnalysis = await analyzeGarmentImage({
-    apiKey,
     imageDataUrl,
     notes,
   });
@@ -137,32 +143,28 @@ async function handleGenerate(req, res) {
     garmentAnalysis,
   });
 
-  const imageBlob = new Blob([imageBytes], { type: imageMime });
-  const body = new FormData();
-  body.append("model", process.env.OPENAI_IMAGE_MODEL || DEFAULT_IMAGE_MODEL);
-  body.append("prompt", prompt);
-  body.append("size", "1024x1536");
-  body.append("quality", "high");
-  body.append("output_format", "png");
-  body.append("image", imageBlob, cleanFileName(image.name || "garment.png"));
+  const generateBody = {
+    model: process.env.IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
+    prompt,
+    image: imageDataUrl,
+    size: "2K",                   // Seedream size key — 2:3 竖版
+    response_format: "b64_json",
+    watermark: false,
+  };
 
-  const response = await fetch("https://api.openai.com/v1/images/edits", {
+  const response = await fetch(ARK_BASE, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${imageKey}`,
+      "Content-Type": "application/json",
     },
-    body,
+    body: JSON.stringify(generateBody),
   });
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    return sendJson(
-      res,
-      {
-        error: openAIErrorMessage(data, "生成失败，请检查密钥或图片后再试。"),
-      },
-      response.status,
-    );
+    const msg = data?.error?.message || data?.message || "生成失败，请检查密钥或图片后再试。";
+    return sendJson(res, { error: `生成失败：${msg}` }, response.status);
   }
 
   const firstImage = data.data?.[0]?.b64_json;
@@ -182,34 +184,46 @@ async function handleGenerate(req, res) {
   });
 }
 
-async function analyzeGarmentImage({ apiKey, imageDataUrl, notes }) {
-  const response = await fetch("https://api.openai.com/v1/responses", {
+async function analyzeGarmentImage({ imageDataUrl, notes }) {
+  const apiKey = process.env.SILICONFLOW_API_KEY;
+  if (!apiKey) {
+    throw new Error("缺少硅基流动 API Key，请在下方填入密钥。");
+  }
+
+  const response = await fetch(`${SILICONFLOW_BASE}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_VISION_MODEL || DEFAULT_VISION_MODEL,
-      input: [
+      model: process.env.ANALYSIS_MODEL || DEFAULT_VISION_MODEL,
+      messages: [
         {
           role: "user",
           content: [
-            { type: "input_text", text: buildAnalysisPrompt(notes) },
-            { type: "input_image", image_url: imageDataUrl },
+            { type: "image_url", image_url: { url: imageDataUrl } },
+            { type: "text", text: buildAnalysisPrompt(notes) },
           ],
         },
       ],
-      max_output_tokens: 1200,
+      max_tokens: 1200,
+      temperature: 0.3,
     }),
   });
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(openAIErrorMessage(data, "自动分析衣服要素失败，请检查图片或密钥后再试。"));
+    const msg = data?.error?.message || data?.message || "分析失败，请检查密钥或图片。";
+    console.error("分析 API 错误：", JSON.stringify(data).slice(0, 500));
+    throw new Error(`自动分析失败：${msg}`);
   }
 
-  const text = data.output_text || extractResponseText(data);
+  const text = data.choices?.[0]?.message?.content || "";
+  if (!text) {
+    console.error("分析 API 返回完整内容：", JSON.stringify(data).slice(0, 1000));
+    throw new Error("自动分析没有返回文字，请查看终端日志。");
+  }
   return normalizeGarmentAnalysis(parseJsonObject(text));
 }
 
@@ -224,9 +238,10 @@ async function handleSaveKey(req, res) {
     return sendJson(res, { error: "密钥格式没有保存成功。" }, 400);
   }
 
-  const apiKey = String(payload.apiKey || "").trim();
-  if (!apiKey.startsWith("sk-") || apiKey.length < 40) {
-    return sendJson(res, { error: "这不像一个有效的 OpenAI API key。" }, 400);
+  const siliconflowKey = String(payload.siliconflowKey || "").trim();
+  const arkKey = String(payload.arkKey || "").trim();
+  if (!siliconflowKey && !arkKey) {
+    return sendJson(res, { error: "请至少填入一个 API Key。" }, 400);
   }
 
   const target = path.join(__dirname, ".env.local");
@@ -237,21 +252,26 @@ async function handleSaveKey(req, res) {
     lines = [];
   }
 
-  const withoutKey = lines.filter((line) => !line.trim().startsWith("OPENAI_API_KEY="));
-  const withoutModel = withoutKey.filter((line) => !line.trim().startsWith("OPENAI_IMAGE_MODEL="));
-  const withoutVision = withoutModel.filter((line) => !line.trim().startsWith("OPENAI_VISION_MODEL="));
-  const nextContent = [
-    ...withoutVision.filter((line) => line.trim()),
-    `OPENAI_API_KEY=${apiKey}`,
-    `OPENAI_IMAGE_MODEL=${DEFAULT_IMAGE_MODEL}`,
-    `OPENAI_VISION_MODEL=${DEFAULT_VISION_MODEL}`,
-    "",
-  ].join("\n");
+  // Only rewrite key-related lines, leave everything else untouched
+  const out = [];
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t || t.startsWith("SILICONFLOW_API_KEY=") || t.startsWith("ARK_API_KEY=")) continue;
+    out.push(t);
+  }
 
+  if (siliconflowKey) {
+    process.env.SILICONFLOW_API_KEY = siliconflowKey;
+    out.push(`SILICONFLOW_API_KEY=${siliconflowKey}`);
+  }
+  if (arkKey) {
+    process.env.ARK_API_KEY = arkKey;
+    out.push(`ARK_API_KEY=${arkKey}`);
+  }
+  out.push("");
+
+  const nextContent = out.join("\n");
   await writeFile(target, nextContent, { mode: 0o600 });
-  process.env.OPENAI_API_KEY = apiKey;
-  process.env.OPENAI_IMAGE_MODEL ||= DEFAULT_IMAGE_MODEL;
-  process.env.OPENAI_VISION_MODEL ||= DEFAULT_VISION_MODEL;
 
   sendJson(res, { ok: true, savedTo: ".env.local" });
 }
@@ -361,16 +381,6 @@ function parseJsonObject(text) {
   return JSON.parse(match[0]);
 }
 
-function extractResponseText(data) {
-  const chunks = [];
-  for (const item of data.output || []) {
-    for (const content of item.content || []) {
-      if (typeof content.text === "string") chunks.push(content.text);
-      if (typeof content.output_text === "string") chunks.push(content.output_text);
-    }
-  }
-  return chunks.join("\n").trim();
-}
 
 function normalizeGarmentAnalysis(raw) {
   const text = (key, fallback = "未明显可见") => {
@@ -422,9 +432,6 @@ function readFileSyncSafe(filePath) {
   return readFileSync(filePath, "utf8");
 }
 
-function cleanFileName(name) {
-  return name.replace(/[^a-z0-9._-]/gi, "_").slice(0, 80) || "garment.png";
-}
 
 function safePublicPath(filePath) {
   const normalized = path.normalize(filePath).replace(/^(\.\.[/\\])+/, "");
@@ -462,23 +469,5 @@ function safeError(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function openAIErrorMessage(data, fallback) {
-  const rawMessage = data?.error?.message || fallback;
-  const code = data?.error?.code || "";
-  const status = data?.error?.status || "";
-  const combined = `${rawMessage} ${code} ${status}`.toLowerCase();
 
-  if (combined.includes("quota") || combined.includes("billing") || combined.includes("plan")) {
-    return "OpenAI API 额度不足或计费未开通。请到 OpenAI Platform 的 Billing/Usage 检查余额、用量限制或绑定付款方式后再试。";
-  }
 
-  if (combined.includes("rate limit")) {
-    return "请求太频繁了，稍等一会儿再生成。";
-  }
-
-  if (combined.includes("model")) {
-    return `当前模型不可用：${rawMessage}`;
-  }
-
-  return rawMessage;
-}
