@@ -20,6 +20,7 @@ const mimeTypes = new Map([
   [".png", "image/png"],
   [".jpg", "image/jpeg"],
   [".jpeg", "image/jpeg"],
+  [".jfif", "image/jpeg"],
   [".webp", "image/webp"],
   [".svg", "image/svg+xml; charset=utf-8"],
 ]);
@@ -127,7 +128,7 @@ async function handleGenerate(req, res) {
     const img = form.get(field);
     if (!img || typeof img === "string") continue;
     const bytes = Buffer.from(await img.arrayBuffer());
-    const mime = img.type || "image/png";
+    const mime = (img.type && img.type.startsWith("image/")) ? img.type : "image/jpeg";
     imageDataUrls.push(`data:${mime};base64,${bytes.toString("base64")}`);
   }
   if (!imageDataUrls.length) {
