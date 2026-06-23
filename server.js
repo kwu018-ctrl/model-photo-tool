@@ -104,17 +104,25 @@ async function handleGenerate(req, res) {
   });
 
   const form = await incoming.formData();
-  const image = form.get("garment");
-  if (!image || typeof image === "string") {
-    return sendJson(res, { error: "请先选择一张衣服图片。" }, 400);
+
+  // Collect up to 3 garment images
+  const imageFields = ["garment", "garment2", "garment3"];
+  const imageDataUrls = [];
+  for (const field of imageFields) {
+    const img = form.get(field);
+    if (!img || typeof img === "string") continue;
+    const bytes = Buffer.from(await img.arrayBuffer());
+    const mime = img.type || "image/png";
+    imageDataUrls.push(`data:${mime};base64,${bytes.toString("base64")}`);
+  }
+  if (!imageDataUrls.length) {
+    return sendJson(res, { error: "请至少选择一张衣服图片。" }, 400);
   }
 
-  const imageBytes = Buffer.from(await image.arrayBuffer());
-  const imageMime = image.type || "image/png";
-  const imageDataUrl = `data:${imageMime};base64,${imageBytes.toString("base64")}`;
+  const mainImage = imageDataUrls[0];
   const notes = String(form.get("notes") || "").trim();
   const garmentAnalysis = await analyzeGarmentImage({
-    imageDataUrl,
+    imageDataUrls,
     notes,
   });
 
@@ -127,8 +135,8 @@ async function handleGenerate(req, res) {
   const generateBody = {
     model: process.env.IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
     prompt,
-    image: imageDataUrl,
-    size: "2K",                   // Seedream size key — 2:3 竖版
+    image: mainImage,
+    size: "2K",
     response_format: "b64_json",
     watermark: false,
   };
@@ -165,11 +173,23 @@ async function handleGenerate(req, res) {
   });
 }
 
-async function analyzeGarmentImage({ imageDataUrl, notes }) {
+async function analyzeGarmentImage({ imageDataUrls, notes }) {
   const apiKey = process.env.SILICONFLOW_API_KEY;
   if (!apiKey) {
     throw new Error("缺少硅基流动 API Key，请在下方填入密钥。");
   }
+
+  const imageCount = imageDataUrls.length;
+  const userContent = [];
+
+  // Add all images first
+  for (const url of imageDataUrls) {
+    userContent.push({ type: "image_url", image_url: { url } });
+  }
+
+  // Build analysis prompt with multi-image note
+  const analysisPrompt = buildAnalysisPrompt(notes, imageCount);
+  userContent.push({ type: "text", text: analysisPrompt });
 
   const response = await fetch(`${SILICONFLOW_BASE}/chat/completions`, {
     method: "POST",
@@ -182,10 +202,7 @@ async function analyzeGarmentImage({ imageDataUrl, notes }) {
       messages: [
         {
           role: "user",
-          content: [
-            { type: "image_url", image_url: { url: imageDataUrl } },
-            { type: "text", text: buildAnalysisPrompt(notes) },
-          ],
+          content: userContent,
         },
       ],
       max_tokens: 1200,
@@ -257,16 +274,21 @@ async function handleSaveKey(req, res) {
   sendJson(res, { ok: true, savedTo: ".env.local" });
 }
 
-function buildAnalysisPrompt(notes) {
+function buildAnalysisPrompt(notes, imageCount = 1) {
+  const multiImageNote = imageCount > 1
+    ? `注意：这是同一件衣服的 ${imageCount} 张不同角度/部位图片（正面、背面、细节等），请综合分析所有图片来识别这件衣服的完整特征。`
+    : "只有一张图片，请只根据这张图片分析。";
+
   const extra = notes
     ? `用户补充备注：${notes}`
-    : "用户没有补充备注。请只根据图片中主服装分析。";
+    : "用户没有补充备注。";
 
   return [
     "你是资深电商服装造型师和模特图提示词助手。",
     "请分析上传图片里的主商品服装，不要把背景、衣架、人体姿势或搭配道具当成商品细节。",
     "重点识别：颜色、材质、毛感/面料肌理、衣长、廓形、肩线、领型/帽子、袖型、袖长、袖口、口袋、门襟/扣子/拉链、下摆、拼接线、特殊装饰。",
-    "如果某个部位看不清楚，写“未明显可见”，不要编造。",
+    "如果某个部位看不清楚，写[未明显可见]，不要编造。",
+    multiImageNote,
     extra,
     "",
     "只输出一个 JSON 对象，不要输出 Markdown，不要解释。JSON 字段如下：",
@@ -313,7 +335,7 @@ function buildPrompt({ notes, pose, garmentAnalysis }) {
     "请根据上传图片生成一张写实高级模特图。上传图片里的主商品服装是唯一款式依据。",
     "",
     "整体风格：",
-    "低饱和、复古、松弛感，偏“都市极简 + quiet luxury”。主色控制在棕色、黑色、白色、米灰和暖石材色里，整体统一，不要高饱和颜色。画面像高级生活化街拍，不要廉价影棚感。",
+    "低饱和、复古、松弛感，偏《都市极简 + quiet luxury》。主色控制在棕色、黑色、白色、米灰和暖石材色里，整体统一，不要高饱和颜色。画面像高级生活化街拍，不要廉价影棚感。",
     "",
     "服装解析（根据上传图片自动替换）：",
     garmentAnalysis.productParagraph,

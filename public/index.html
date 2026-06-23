@@ -209,12 +209,12 @@
 
   <!-- Upload Card -->
   <div class="card">
-    <div class="card-title">📷 上传衣服图片</div>
+    <div class="card-title">📷 上传衣服图片（最多 3 张）</div>
     <div id="uploadZone" class="upload-zone">
       <span class="upload-icon">🖼️</span>
       <p class="upload-text">点击这里选择图片，或拖拽图片到此处</p>
-      <p class="upload-hint">支持 JPG、PNG、WEBP 格式</p>
-      <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp">
+      <p class="upload-hint">支持 JPG、PNG、WEBP 格式，可选不同角度（正面、背面、细节）</p>
+      <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" multiple>
     </div>
     <div id="previewArea" style="display:none;"></div>
   </div>
@@ -312,9 +312,10 @@
 
 <script>
 // ── State ──
-let selectedFile = null;
+let selectedFiles = [];
 let selectedPose = "quiet-luxury";
 let generatedBlobUrl = null;
+const MAX_IMAGES = 3;
 
 // ── DOM refs ──
 const $ = (sel) => document.querySelector(sel);
@@ -339,7 +340,7 @@ async function checkStatus() {
     if (data.hasKey) {
       dot.className = "status-dot ok";
       text.textContent = "密钥已配置，可以正常使用";
-      $("#btnGenerate").disabled = !selectedFile;
+      $("#btnGenerate").disabled = !selectedFiles.length;
     } else if (data.hasAnalysisKey || data.hasImageKey) {
       dot.className = "status-dot missing";
       text.textContent = "部分密钥未配置，请检查下方设置";
@@ -366,7 +367,7 @@ uploadZone.addEventListener("click", (e) => {
 });
 
 fileInput.addEventListener("change", () => {
-  if (fileInput.files.length) handleFile(fileInput.files[0]);
+  handleFiles(Array.from(fileInput.files));
 });
 
 uploadZone.addEventListener("dragover", (e) => { e.preventDefault(); uploadZone.classList.add("dragover"); });
@@ -374,40 +375,62 @@ uploadZone.addEventListener("dragleave", () => { uploadZone.classList.remove("dr
 uploadZone.addEventListener("drop", (e) => {
   e.preventDefault();
   uploadZone.classList.remove("dragover");
-  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  handleFiles(Array.from(e.dataTransfer.files));
 });
 
-function handleFile(file) {
-  if (!file.type.match(/^image\/(jpeg|png|webp)$/)) {
-    toast("请选择 JPG、PNG 或 WEBP 格式的图片", true);
-    return;
+function handleFiles(files) {
+  const images = files.filter(f => f.type.match(/^image\/(jpeg|png|webp)$/));
+  if (!images.length) { toast("请选择 JPG、PNG 或 WEBP 格式的图片", true); return; }
+  if (images.length > MAX_IMAGES) {
+    toast(`最多只能上传 ${MAX_IMAGES} 张图片，只保留前 ${MAX_IMAGES} 张`, true);
+    images.splice(MAX_IMAGES);
   }
-  selectedFile = file;
-  const reader = new FileReader();
-  reader.onload = function() {
-    uploadZone.classList.add("has-image");
-    uploadZone.querySelector(".upload-icon").textContent = "✅";
-    uploadZone.querySelector(".upload-text").textContent = file.name;
-    uploadZone.querySelector(".upload-hint").textContent = `文件大小：${(file.size / 1024).toFixed(0)} KB — 点击重新选择`;
-    previewArea.style.display = "block";
-    previewArea.innerHTML = `
-      <img src="${reader.result}" class="preview-img" alt="预览">
-      <div class="preview-actions">
-        <button class="btn-sm" onclick="fileInput.click()">📁 换一张</button>
-        <button class="btn-sm" onclick="clearFile()">✕ 清除</button>
-      </div>`;
-  };
-  reader.readAsDataURL(file);
-  checkStatus().then(() => { if (selectedFile) checkStatus(); });
+
+  selectedFiles = images;
+  renderPreviews();
+  checkStatus();
+  if (selectedFiles.length) checkStatus();
 }
 
-function clearFile() {
-  selectedFile = null;
+function renderPreviews() {
+  if (!selectedFiles.length) {
+    clearFiles();
+    return;
+  }
+
+  uploadZone.classList.add("has-image");
+  uploadZone.querySelector(".upload-icon").textContent = "✅";
+  const names = selectedFiles.map(f => f.name).join("、");
+  uploadZone.querySelector(".upload-text").textContent = `已选 ${selectedFiles.length} 张：${names}`;
+  uploadZone.querySelector(".upload-hint").textContent = "点击重新选择，或拖拽新图片替换";
+
+  previewArea.style.display = "block";
+  const gridStyle = selectedFiles.length > 1
+    ? "display:grid;grid-template-columns:repeat(" + Math.min(selectedFiles.length, 3) + ",1fr);gap:8px;"
+    : "";
+  let html = `<div style="${gridStyle}">`;
+  selectedFiles.forEach((file, i) => {
+    const url = URL.createObjectURL(file);
+    html += `<div style="position:relative;">
+      <img src="${url}" style="width:100%;max-height:200px;object-fit:contain;border-radius:6px;" alt="预览 ${i+1}">
+      <span style="position:absolute;top:4px;left:4px;background:rgba(0,0,0,0.6);color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;">${i === 0 ? '主图' : '图'+(i+1)}</span>
+    </div>`;
+  });
+  html += `</div>
+    <div class="preview-actions">
+      <button class="btn-sm" onclick="fileInput.click()">📁 ${selectedFiles.length < MAX_IMAGES ? '添加更多' : '换图片'}</button>
+      <button class="btn-sm" onclick="clearFiles()">✕ 清除</button>
+    </div>`;
+  previewArea.innerHTML = html;
+}
+
+function clearFiles() {
+  selectedFiles = [];
   fileInput.value = "";
   uploadZone.classList.remove("has-image");
   uploadZone.querySelector(".upload-icon").textContent = "🖼️";
   uploadZone.querySelector(".upload-text").textContent = "点击这里选择图片，或拖拽图片到此处";
-  uploadZone.querySelector(".upload-hint").textContent = "支持 JPG、PNG、WEBP 格式";
+  uploadZone.querySelector(".upload-hint").textContent = "支持 JPG、PNG、WEBP 格式，可选不同角度（正面、背面、细节）";
   previewArea.style.display = "none";
   previewArea.innerHTML = "";
   $("#btnGenerate").disabled = true;
@@ -426,8 +449,8 @@ $$(".pose-btn").forEach((btn) => {
 $("#btnGenerate").addEventListener("click", generate);
 
 async function generate() {
-  if (!selectedFile) {
-    toast("请先选择一张衣服图片", true);
+  if (!selectedFiles.length) {
+    toast("请先选择衣服图片", true);
     return;
   }
 
@@ -443,7 +466,11 @@ async function generate() {
 
   try {
     const form = new FormData();
-    form.append("garment", selectedFile);
+    // Send up to 3 images: garment, garment2, garment3
+    const fields = ["garment", "garment2", "garment3"];
+    selectedFiles.forEach((file, i) => {
+      if (i < 3) form.append(fields[i], file);
+    });
     form.append("pose", selectedPose);
     const notes = $("#notesInput").value.trim();
     if (notes) form.append("notes", notes);
