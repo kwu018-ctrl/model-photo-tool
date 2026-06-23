@@ -141,7 +141,7 @@ async function handleGenerate(req, res) {
     model: process.env.IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
     prompt,
     image: mainImage,
-    size: "2K",
+    size: "4K",
     response_format: "b64_json",
     watermark: false,
   };
@@ -231,7 +231,7 @@ async function handleGenerateSeries(req, res) {
           model: process.env.IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
           prompt: seriesPrompt,
           image: mainImage,
-          size: "2K",
+          size: "4K",
           response_format: "b64_json",
           watermark: false,
         }),
