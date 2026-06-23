@@ -51,6 +51,11 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/generate-series") {
+      await handleGenerateSeries(req, res);
+      return;
+    }
+
     if (req.method === "GET") {
       const filePath = url.pathname === "/" ? "/index.html" : url.pathname;
       await sendFile(res, path.join(__dirname, "public", safePublicPath(filePath)));
@@ -171,6 +176,92 @@ async function handleGenerate(req, res) {
     savedFile: `agent_outputs/${fileName}`,
     analysis: garmentAnalysis,
   });
+}
+
+async function handleGenerateSeries(req, res) {
+  const imageKey = process.env.ARK_API_KEY;
+  if (!imageKey) {
+    return sendJson(res, { error: "缺少火山引擎 API Key。" }, 400);
+  }
+
+  const incoming = new Request(`http://localhost:${PORT}/api/generate-series`, {
+    method: "POST",
+    headers: req.headers,
+    body: req,
+    duplex: "half",
+  });
+
+  let payload;
+  try {
+    payload = await incoming.json();
+  } catch {
+    return sendJson(res, { error: "请传入生成参数。" }, 400);
+  }
+
+  const { mainImage, garmentAnalysis, notes, pose } = payload;
+  if (!mainImage || !garmentAnalysis) {
+    return sendJson(res, { error: "缺少主图或分析结果。" }, 400);
+  }
+
+  // 4 series pose variants — different actions, same outfit + background
+  const seriesPoses = [
+    "侧身站立，回眸看向镜头，自然微笑，左手轻轻撩头发。",
+    "双手插在裤子口袋里，低头看地面，轻松随意的走路姿势。",
+    "靠墙站立，右腿微曲交叉在左腿前，一只手自然垂放，一只手搭在包上。",
+    "正面走向镜头，右手自然摆动，左肩背包，步伐轻盈自信。",
+  ];
+
+  const results = [];
+  for (let i = 0; i < seriesPoses.length; i++) {
+    const seriesPrompt = buildPrompt({
+      notes: notes || "",
+      pose: pose || "quiet-luxury",
+      garmentAnalysis,
+      seriesPose: seriesPoses[i],
+    });
+
+    try {
+      const response = await fetch(ARK_BASE, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${imageKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: process.env.IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
+          prompt: seriesPrompt,
+          image: mainImage,
+          size: "2K",
+          response_format: "b64_json",
+          watermark: false,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const msg = data?.error?.message || data?.message || "生成失败";
+        results.push({ error: msg });
+        continue;
+      }
+
+      const img = data.data?.[0]?.b64_json;
+      if (img) {
+        const fileName = `model_series_${i + 1}_${new Date().toISOString().replace(/[:.]/g, "-")}.png`;
+        const savedPath = path.join(__dirname, "agent_outputs", fileName);
+        await writeFile(savedPath, Buffer.from(img, "base64"));
+        results.push({
+          image: `data:image/png;base64,${img}`,
+          savedFile: `agent_outputs/${fileName}`,
+        });
+      } else {
+        results.push({ error: "未返回图片" });
+      }
+    } catch (err) {
+      results.push({ error: safeError(err) });
+    }
+  }
+
+  sendJson(res, { series: results });
 }
 
 async function analyzeGarmentImage({ imageDataUrls, notes }) {
@@ -311,8 +402,10 @@ function buildAnalysisPrompt(notes, imageCount = 1) {
   ].join("\n");
 }
 
-function buildPrompt({ notes, pose, garmentAnalysis }) {
-  const poseLine = {
+function buildPrompt({ notes, pose, garmentAnalysis, seriesPose }) {
+  const poseLine = seriesPose
+    ? `竖版全身图，${seriesPose}服装、搭配、场景、光影与第一张完全一致，保持一致的人物外貌和背景。`
+    : {
     "quiet-luxury":
       "竖版全身图，安静奢华街拍感，模特姿态松弛自信，人物居中偏下，上方和右侧留白较多。",
     walking:

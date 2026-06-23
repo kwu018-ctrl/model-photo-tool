@@ -181,6 +181,10 @@
   /* Modal */
 
   /* Responsive */
+  .series-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-top: 12px; }
+  .series-item img { width: 100%; border-radius: 8px; display: block; }
+  .series-item a { display: block; text-align: center; font-size: 13px; color: var(--accent); margin-top: 4px; text-decoration: none; }
+
   @media (max-width: 600px) {
     .container { padding: 16px 12px 40px; }
     header h1 { font-size: 24px; }
@@ -271,9 +275,20 @@
     <img id="resultImage" class="result-image" alt="生成的模特图">
     <div class="result-actions">
       <a id="btnDownload" class="btn-outline" download>💾 下载图片</a>
+      <button id="btnSeries" class="btn-outline">🎬 生成系列</button>
       <button id="btnRetry" class="btn-outline">🔄 重新生成</button>
     </div>
     <dl id="analysisBox" class="analysis-box"></dl>
+  </div>
+
+  <!-- Series -->
+  <div id="seriesCard" class="card" style="display:none;">
+    <div class="card-title">🎬 系列图（同一模特，不同动作）</div>
+    <div id="seriesLoading" style="display:none; text-align:center; padding:16px;">
+      <div class="spinner" style="margin:0 auto 8px;"></div>
+      <p id="seriesProgress" style="font-size:14px;color:var(--muted);">正在生成系列图...</p>
+    </div>
+    <div id="seriesGrid" class="series-grid"></div>
   </div>
 
   <!-- Error -->
@@ -489,16 +504,22 @@ async function generate() {
 
     // Display result
     if (data.image) {
-      generatedBlobUrl = data.image; // it's a data: URL already
+      generatedBlobUrl = data.image;
+      lastMainImage = data.image;
+      lastNotes = $("#notesInput").value.trim();
+      lastPose = selectedPose;
       $("#resultImage").src = data.image;
       $("#btnDownload").href = data.image;
       $("#btnDownload").download = data.savedFile ? data.savedFile.split("/").pop() : "model_photo.png";
       $("#resultCard").style.display = "";
+      $("#seriesCard").style.display = "none";
+      $("#seriesGrid").innerHTML = "";
       $("#resultCard").scrollIntoView({ behavior: "smooth" });
     }
 
     // Display analysis
     if (data.analysis) {
+      lastAnalysis = data.analysis;
       const a = data.analysis;
       const dl = $("#analysisBox");
       const rows = [];
@@ -542,6 +563,65 @@ function esc(str) {
 
 // ── Retry ──
 $("#btnRetry").addEventListener("click", generate);
+
+// ── Series Generation ──
+let lastAnalysis = null;
+let lastMainImage = null;
+let lastNotes = "";
+let lastPose = "";
+
+$("#btnSeries").addEventListener("click", generateSeries);
+
+async function generateSeries() {
+  if (!lastAnalysis || !lastMainImage) {
+    toast("请先生成一张图片", true);
+    return;
+  }
+
+  $("#btnSeries").disabled = true;
+  $("#seriesCard").style.display = "";
+  $("#seriesLoading").style.display = "";
+  $("#seriesProgress").textContent = "正在生成系列图（1/4）...";
+  $("#seriesGrid").innerHTML = "";
+  $("#seriesCard").scrollIntoView({ behavior: "smooth" });
+
+  try {
+    const res = await fetch("/api/generate-series", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mainImage: lastMainImage,
+        garmentAnalysis: lastAnalysis,
+        notes: lastNotes,
+        pose: lastPose,
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "系列生成失败");
+
+    if (!data.series?.length) throw new Error("没有返回系列图");
+
+    $("#seriesLoading").style.display = "none";
+    let html = "";
+    data.series.forEach((item, i) => {
+      if (item.image) {
+        html += `<div class="series-item">
+          <img src="${item.image}" alt="系列图 ${i + 1}" loading="lazy">
+          <a href="${item.image}" download="model_series_${i + 1}.png">💾 下载</a>
+        </div>`;
+      } else {
+        html += `<div class="series-item" style="display:flex;align-items:center;justify-content:center;background:#faf8f6;border-radius:8px;min-height:200px;color:var(--muted);font-size:13px;">第${i + 1}张生成失败</div>`;
+      }
+    });
+    $("#seriesGrid").innerHTML = html;
+  } catch (err) {
+    $("#seriesLoading").style.display = "none";
+    toast(err.message || "系列生成失败", true);
+  } finally {
+    $("#btnSeries").disabled = false;
+  }
+}
 
 // ── Save Key ──
 $("#btnSaveKey").addEventListener("click", async () => {
