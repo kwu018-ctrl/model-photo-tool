@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 5178);
 const HOST = process.env.HOST || "127.0.0.1";
-const DEFAULT_IMAGE_MODEL = "doubao-seedream-4-0-250828";
+const DEFAULT_IMAGE_MODEL = "doubao-seedream-5-0-260128";
 const DEFAULT_VISION_MODEL = "Qwen/Qwen3-VL-32B-Instruct";
 const SILICONFLOW_BASE = "https://api.siliconflow.cn/v1";
 const ARK_BASE = "https://ark.cn-beijing.volces.com/api/v3/images/generations";
