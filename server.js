@@ -141,7 +141,7 @@ async function handleGenerate(req, res) {
     model: process.env.IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
     prompt,
     image: mainImage,
-    size: "2K",
+    size: "3:4",
     response_format: "b64_json",
     watermark: false,
   };
@@ -231,7 +231,7 @@ async function handleGenerateSeries(req, res) {
           model: process.env.IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
           prompt: seriesPrompt,
           image: mainImage,
-          size: "2K",
+          size: "3:4",
           response_format: "b64_json",
           watermark: false,
         }),
@@ -403,18 +403,26 @@ function buildAnalysisPrompt(notes, imageCount = 1) {
 }
 
 function buildPrompt({ notes, pose, garmentAnalysis, seriesPose }) {
+  // 场景库
+  const scenes = {
+    "quiet-luxury": "极简白色画廊空间，大面积留白，暖色大理石地面，柔和侧逆光从落地窗洒入，墙面有细腻的肌理",
+    "walking": "现代都市建筑入口，米灰色石材外墙，阳光明媚的午后，斑驳树影落在墙面和地面",
+    "studio-clean": "专业摄影棚，纯白无影墙背景，多角度柔光灯箱，干净利落的商业广告片质感",
+    "detail-forward": "简约咖啡厅窗边，暖木色桌面，自然光从窗户斜射，背景虚化",
+  };
+
   const poseLine = seriesPose
-    ? `竖版全身图，${seriesPose}服装、搭配、场景、光影与第一张完全一致，保持一致的人物外貌和背景。`
+    ? `竖版 3:4 全身图，${seriesPose}服装、搭配、场景、光影与第一张完全一致，保持一致的人物外貌和背景。`
     : {
     "quiet-luxury":
-      "竖版全身图，安静奢华街拍感，模特姿态松弛自信，人物居中偏下，上方和右侧留白较多。",
-    walking:
-      "竖版全身图，自然走路姿势，像生活化街拍，但商品正面、领子、袖口和口袋仍然清楚。",
+      `竖版 3:4 全身图，模特姿态松弛自信，人物居中偏下，上方和右侧留白。场景：${scenes["quiet-luxury"]}。`,
+    "walking":
+      `竖版 3:4 全身图，模特正在自然走路，步伐轻盈，一只手自然摆动，生活化抓拍感。场景：${scenes["walking"]}。确保衣服正面、领子和袖口仍然清楚。`,
     "studio-clean":
-      "竖版全身图，干净棚拍和暖石材空间结合，画面克制，商品轮廓清楚。",
+      `竖版 3:4 全身图，模特正对镜头，双手自然垂放，展示服装完整廓形。场景：${scenes["studio-clean"]}。商品轮廓清晰，适合电商主图。`,
     "detail-forward":
-      "竖版全身或近全身图，手部位置避开关键部位，优先展示领子、袖口、口袋、门襟和下摆。",
-  }[pose] || "竖版全身图，安静奢华街拍感，商品清楚。";
+      `竖版 3:4 半身或大半身图，模特手部自然避开关键部位，重点展示领口、袖口、口袋和门襟的做工细节。场景：${scenes["detail-forward"]}。`,
+  }[pose] || `竖版 3:4 全身图，高级电商模特感，商品清楚。`;
 
   const userNotes = notes
     ? `用户额外备注：${notes}`
@@ -425,10 +433,16 @@ function buildPrompt({ notes, pose, garmentAnalysis, seriesPose }) {
     : "- 按上传图保留真实款式细节";
 
   return [
-    "请根据上传图片生成一张写实高级模特图。上传图片里的主商品服装是唯一款式依据。",
+    "请根据上传图片生成一张淘宝电商级别的高级模特图。上传图片里的主商品服装是唯一款式依据。",
+    "",
+    "画质要求：",
+    "中画幅相机拍摄质感，大光圈浅景深虚化背景，高解析力，面料肌理和毛感清晰锐利。高级灰调莫兰迪色系，电影感调色，画面通透干净。",
     "",
     "整体风格：",
-    "低饱和、复古、松弛感，偏《都市极简 + quiet luxury》。主色控制在棕色、黑色、白色、米灰和暖石材色里，整体统一，不要高饱和颜色。画面像高级生活化街拍，不要廉价影棚感。",
+    "韩系高级感 + 都市极简，主色控制在黑、白、棕、米灰和暖石材色系内，整体统一低饱和。画面像高端设计师品牌画册，不要廉价影棚感。",
+    "",
+    "模特：",
+    "亚洲年轻女性，韩系自然裸妆，皮肤白皙通透，蓬松微卷中长发，气质优雅。身姿挺拔，比例自然。",
     "",
     "服装解析（根据上传图片自动替换）：",
     garmentAnalysis.productParagraph,
